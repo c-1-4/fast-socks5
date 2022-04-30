@@ -214,8 +214,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Socks5Socket<T> {
         self.reply_ip = Some(addr);
     }
 
-    /// Process clients SOCKS requests
-    /// This is the entry point where a whole request is processed.
+    /// Prepare to process clients SOCKS requests
+    /// This is the entry point where the request is partially processed.
     pub async fn upgrade_to_socks5(mut self) -> Result<Socks5Socket<T>> {
         trace!("upgrading to socks5...");
 
@@ -235,8 +235,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Socks5Socket<T> {
         } else {
             debug!("skipping auth");
         }
+        
+        // we want to know the recipient address before we send it on its way,
+        // for filtering purposes. This is the forked code
+		self.read_command().await?;
+        
 
-        match self.request().await {
+        Ok(self)
+    }
+    
+    // Process the client's SOCKS request to completion, FaF
+    pub async fn complete_socks5_transaction(mut self) -> Result<Socks5Socket<T>> {
+    	match self.request().await {
             Ok(_) => {}
             Err(SocksError::ReplyError(e)) => {
                 // If a reply error has been returned, we send it to the client
@@ -246,7 +256,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Socks5Socket<T> {
             // if any other errors has been detected, we simply end connection's task
             Err(d) => return Err(d),
         };
-
         Ok(self)
     }
 
@@ -411,7 +420,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> Socks5Socket<T> {
 
     /// Wrapper to principally cover ReplyError types for both functions read & execute request.
     async fn request(&mut self) -> Result<()> {
-        self.read_command().await?;
+        
 
         if self.config.dns_resolve {
             self.resolve_dns().await?;
